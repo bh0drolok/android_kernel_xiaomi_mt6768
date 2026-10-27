@@ -1250,6 +1250,8 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
+	/* PORT-BRINGUP: present a 5.10 release to userspace (NetBpfLoad needs >= 5.4) */
+	strlcpy(tmp.release, "5.10.239-ShockWAVE", sizeof(tmp.release));
 #ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 	if (static_branch_likely(&susfs_is_uname_spoof_buffer_set))
 		susfs_spoof_uname(&tmp);
