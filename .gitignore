@@ -131,7 +131,3 @@ all.config
 
 # Kdevelop4
 *.kdev4
-
-# Ignore patch conflict/reject files
-*.orig
-*.rej
