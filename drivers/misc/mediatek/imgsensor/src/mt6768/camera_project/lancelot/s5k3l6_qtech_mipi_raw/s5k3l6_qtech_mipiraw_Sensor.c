@@ -182,7 +182,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 	.slim_video = {
 		.pclk = 480000000,				//record different mode's pclk
 		.linelength  = 4896,//5808,				//record different mode's linelength
-		.framelength = 3260,			//record different mode's framelength
+		.framelength = 1634,			//record different mode's framelength
 		.startx = 0,					//record different mode's startx of grabwindow
 		.starty = 0,					//record different mode's starty of grabwindow
 		.grabwindow_width  = 1920,		//record different mode's width of grabwindow
@@ -190,7 +190,7 @@ static struct imgsensor_info_struct imgsensor_info = {
 		/*	 following for MIPIDataLowPwr2HighSpeedSettleDelayCount by different scenario	*/
 		.mipi_data_lp2hs_settle_dc = 85,
 		/*	 following for GetDefaultFramerateByScenario()	*/
-		.max_framerate = 300,
+		.max_framerate = 600,
 		.mipi_pixel_rate = 208000000,
 
 	},
@@ -1293,7 +1293,7 @@ static kal_uint16 addr_data_pair_slim_3l6[] = {
 	0x3C16, 0x0002,
 	0x0300, 0x0006,
 	0x0342, 0x1320,
-	0x0340, 0x0CBC,
+	0x0340, 0x0662,
 	0x38C4, 0x0004,
 	0x38D8, 0x000F,
 	0x38DA, 0x0005,
