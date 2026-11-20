@@ -150,19 +150,19 @@ static struct imgsensor_info_struct imgsensor_info = {
 		.max_framerate = 300,
 		.mipi_pixel_rate = 480000000,
 	},
-	.normal_video = {
+	.normal_video = {	//1080p60 video recording (replaces full-res 30fps video mode)
 		.pclk = 480000000,				//record different mode's pclk
 		.linelength  = 4896,//5808,				//record different mode's linelength
-		.framelength = 3260,			//record different mode's framelength
+		.framelength = 1634,			//record different mode's framelength
 		.startx = 0,					//record different mode's startx of grabwindow
 		.starty = 0,					//record different mode's starty of grabwindow
-		.grabwindow_width  = 4208,		//record different mode's width of grabwindow
-		.grabwindow_height = 3120,		//record different mode's height of grabwindow
+		.grabwindow_width  = 1920,		//record different mode's width of grabwindow
+		.grabwindow_height = 1080,		//record different mode's height of grabwindow
 		/*	 following for MIPIDataLowPwr2HighSpeedSettleDelayCount by different scenario	*/
 		.mipi_data_lp2hs_settle_dc = 85,
 		/*	 following for GetDefaultFramerateByScenario()	*/
-		.max_framerate = 300,
-		.mipi_pixel_rate = 480000000,
+		.max_framerate = 600,
+		.mipi_pixel_rate = 208000000,
 	},
 	.hs_video = {
 		.pclk = 480000000,				//record different mode's pclk
@@ -1190,12 +1190,17 @@ static kal_uint16 addr_data_pair_video_3l6[] = {
 
 };
 
+static void slim_video_setting(void);
+
 static void normal_video_setting(kal_uint16 currefps)
 {
 	pr_debug("normal_video_setting() E! currefps:%d\n", currefps);
 
-	table_write_cmos_sensor(addr_data_pair_video_3l6,
-		sizeof(addr_data_pair_video_3l6) / sizeof(kal_uint16));
+	/* Video scenario now uses the 1920x1080 60fps register table so that
+	 * normal (non-high-speed) recording can run at 60fps. 30fps is still
+	 * available through dummy-line padding in set_max_framerate_by_scenario().
+	 */
+	slim_video_setting();
 }
 
 static kal_uint16 addr_data_pair_hs_3l6[] = {
