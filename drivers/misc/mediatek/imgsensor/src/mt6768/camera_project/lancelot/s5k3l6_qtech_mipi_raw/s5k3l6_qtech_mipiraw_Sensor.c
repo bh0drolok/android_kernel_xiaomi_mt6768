@@ -557,11 +557,38 @@ static kal_uint32 streaming_control(kal_bool enable)
 
 static bool bNeedSetNormalMode = KAL_FALSE;
 
+/* Latched when the HAL requests >=60fps in the VIDEO scenario
+ * (SET_MAX_FRAME_RATE_BY_SCENARIO(VIDEO_PREVIEW, >=600) / SET_VIDEO_MODE).
+ * While set, write_shutter()/set_shutter_frame_length() clamp the frame
+ * length to the 1080p60 base (normal_video.framelength = 1634 lines) so AE
+ * cannot drop the sensor to 30fps by choosing a long shutter; the missing
+ * exposure is then made up by gain.  Reset on scenario entry (preview /
+ * capture / normal_video / hs_video / slim_video / custom1 / custom2).
+ */
+static bool bVideo60fps = KAL_FALSE;
+
 static void write_shutter(kal_uint64 shutter)
 {
 	kal_uint16 realtime_fps = 0;
 
 	LOG_DBG(" XL shutter = %d\n", shutter);
+	if (bVideo60fps && imgsensor.sensor_mode == IMGSENSOR_MODE_VIDEO) {
+		kal_uint32 fl60 = imgsensor_info.normal_video.framelength;
+		kal_uint32 max_sh60 = (fl60 > imgsensor_info.margin)
+			? (fl60 - imgsensor_info.margin) : 1;
+
+		if (shutter > max_sh60) {
+			LOG_DBG("60FPSCLAMP ws: shutter %llu -> %u (fl %u, min_fl %u)\n",
+				(unsigned long long)shutter, max_sh60,
+				fl60, imgsensor.min_frame_length);
+			shutter = max_sh60;
+		}
+		spin_lock(&imgsensor_drv_lock);
+		imgsensor.frame_length = fl60;
+		if (imgsensor.min_frame_length > fl60)
+			imgsensor.min_frame_length = fl60;
+		spin_unlock(&imgsensor_drv_lock);
+	}
 	if (shutter <= 65530) {
 		if (bNeedSetNormalMode) {
 			kal_uint16 timeout = 0;
@@ -735,6 +762,22 @@ static void set_shutter_frame_length(
 	unsigned long flags;
 	kal_uint16 realtime_fps = 0;
 
+	if (bVideo60fps && imgsensor.sensor_mode == IMGSENSOR_MODE_VIDEO) {
+		kal_uint32 fl60 = imgsensor_info.normal_video.framelength;
+		kal_uint32 max_sh60 = (fl60 > imgsensor_info.margin)
+			? (fl60 - imgsensor_info.margin) : 1;
+
+		LOG_DBG("60FPSCLAMP sfl: in sh %u fl %u -> fl %u sh<=%u (min_fl %u)\n",
+			shutter, frame_length, fl60, max_sh60,
+			imgsensor.min_frame_length);
+		frame_length = (kal_uint16)fl60;
+		if (shutter > max_sh60)
+			shutter = (kal_uint16)max_sh60;
+		spin_lock(&imgsensor_drv_lock);
+		if (imgsensor.min_frame_length > fl60)
+			imgsensor.min_frame_length = fl60;
+		spin_unlock(&imgsensor_drv_lock);
+	}
 	 spin_lock_irqsave(&imgsensor_drv_lock, flags);
 	imgsensor.shutter = shutter;
 	spin_unlock_irqrestore(&imgsensor_drv_lock, flags);
@@ -1802,6 +1845,7 @@ static kal_uint32 preview(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 			  MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("preview E\n");
+	bVideo60fps = KAL_FALSE;
 
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_PREVIEW;
@@ -1837,6 +1881,7 @@ static kal_uint32 capture(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 			  MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("capture E\n");
+	bVideo60fps = KAL_FALSE;
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_CAPTURE;
 	if (imgsensor.current_fps == imgsensor_info.cap1.max_framerate) {
@@ -1879,6 +1924,7 @@ static kal_uint32 normal_video(
 	MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("normal_video E\n");
+	bVideo60fps = KAL_FALSE;
 
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_VIDEO;
@@ -1899,6 +1945,7 @@ static kal_uint32 hs_video(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 			   MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("hs_video E\n");
+	bVideo60fps = KAL_FALSE;
 
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_HIGH_SPEED_VIDEO;
@@ -1923,6 +1970,7 @@ static kal_uint32 slim_video(
 	MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("slim_video E\n");
+	bVideo60fps = KAL_FALSE;
 
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_SLIM_VIDEO;
@@ -1946,6 +1994,7 @@ static kal_uint32 custom1(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 			  MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("custom1 E\n");
+	bVideo60fps = KAL_FALSE;
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_CUSTOM1;
 	imgsensor.pclk = imgsensor_info.custom1.pclk;
@@ -1966,6 +2015,7 @@ static kal_uint32 custom2(MSDK_SENSOR_EXPOSURE_WINDOW_STRUCT *image_window,
 			  MSDK_SENSOR_CONFIG_STRUCT *sensor_config_data)
 {
 	pr_debug("custom2 E\n");
+	bVideo60fps = KAL_FALSE;
 
 	spin_lock(&imgsensor_drv_lock);
 	imgsensor.sensor_mode = IMGSENSOR_MODE_CUSTOM2;
@@ -2223,7 +2273,13 @@ static kal_uint32 set_video_mode(UINT16 framerate)
 	else
 		imgsensor.current_fps = framerate;
 	spin_unlock(&imgsensor_drv_lock);
-	set_max_framerate(imgsensor.current_fps, 1);
+	if (framerate >= 600) {
+		bVideo60fps = KAL_TRUE;
+		LOG_DBG("60FPSLATCH: set_video_mode framerate %d\n", framerate);
+	}
+	/* while latched, never lower min_frame_length mid-stream */
+	if (!(bVideo60fps && imgsensor.current_fps < 600))
+		set_max_framerate(imgsensor.current_fps, 1);
 
 	return ERROR_NONE;
 }
@@ -2270,6 +2326,20 @@ static kal_uint32 set_max_framerate_by_scenario(
 	case MSDK_SCENARIO_ID_VIDEO_PREVIEW:
 		if (framerate == 0)
 			return ERROR_NONE;
+		if (framerate >= 600) {
+			bVideo60fps = KAL_TRUE;
+			LOG_DBG("60FPSLATCH: scenario VIDEO_PREVIEW framerate %d\n",
+				framerate);
+		}
+		if (bVideo60fps && framerate < 600) {
+			/* AE may try to lower the frame rate mid-stream; while the
+			 * 60fps latch is active, keep min_frame_length at the 60fps
+			 * base so the sensor stays at 60fps.
+			 */
+			LOG_DBG("60FPSCLAMP scenario: ignore framerate %d, keep min_fl %u\n",
+				framerate, imgsensor.min_frame_length);
+			break;
+		}
 		frame_length = imgsensor_info.normal_video.pclk
 		    / framerate * 10 / imgsensor_info.normal_video.linelength;
 
